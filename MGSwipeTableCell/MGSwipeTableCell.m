@@ -89,7 +89,6 @@
         additionalButton = [buttonsArray objectAtIndex:0];
         additionalButton.hidden = YES;
     }
-    
 
     if (self = [super initWithFrame:CGRectMake(additionalButton ? -additionalButton.frame.size.width : 0, 0, containerWidth, maxSize.height)]) {
         
@@ -1056,15 +1055,22 @@ static inline CGFloat mgEaseInOutBounce(CGFloat t, CGFloat b, CGFloat c) {
         
         CGFloat thresholdAdditionalShow = 1.01;
         CGFloat thresholdExpansion = 1.30;
+        
+        CGFloat offsetShift = 0;
+        if (![view isAdditionalButtonShown] && offset <= boundsDump.size.width * thresholdAdditionalShow)
+        {
+            newOffset = offset * 0.75;
+        }
+        
         if (![view isAdditionalButtonShown] && expansions[i].buttonIndex >= 0 && offset > boundsDump.size.width * thresholdAdditionalShow)
         {
             [view hideAdditionalButton:false];
-            [UIView animateWithDuration:0.2 animations:^{
-                _swipeView.transform = CGAffineTransformMakeTranslation(onlyButtons ? 0 : newOffset + ([view isAdditionalButtonShown] ? 0 : [view hiddenButtonWidth]), 0);
+            [UIView animateWithDuration:0.4 animations:^{
+                _swipeView.transform = CGAffineTransformMakeTranslation(onlyButtons ? 0 : newOffset, 0);
             }];
         }
         
-        _swipeView.transform = CGAffineTransformMakeTranslation(onlyButtons ? 0 : newOffset + ([view isAdditionalButtonShown] ? 0 : -[view hiddenButtonWidth]), 0);
+        _swipeView.transform = CGAffineTransformMakeTranslation(onlyButtons ? 0 : newOffset + offsetShift, 0);
 
         if (view != activeButtons) continue; //only transition if active (perf. improvement)
         bool expand = expansions[i].buttonIndex >= 0 && offset > boundsDump.size.width * thresholdExpansion;
