@@ -119,6 +119,8 @@ typedef NS_ENUM(NSInteger, MGSwipeEasingFunction) {
 /** Animation settings when the expansion is triggered **/
 @property (nonatomic, strong) MGSwipeAnimation * triggerAnimation;
 
+@property (nonatomic, assign) BOOL useHiddenButton;
+
 /** Property to read or change expansion animation durations. Default value 0.2 
  * The target animation is the change of a button from normal state to expanded state
  */

@@ -60,11 +60,16 @@
     MGSwipeExpansionLayout _expansionLayout;
     CGFloat _expansionOffset;
     BOOL _autoHideExpansion;
+    BOOL _animateAdditional;
+    BOOL _animationInProgress;
+    
+    CGFloat _hiddenButtonWidth;
+    BOOL _usingHiddenButton;
 }
 
 #pragma mark Layout
 
--(instancetype) initWithButtons:(NSArray*) buttonsArray direction:(MGSwipeDirection) direction differentWidth:(BOOL) differentWidth
+-(instancetype) initWithButtons:(NSArray*) buttonsArray direction:(MGSwipeDirection) direction differentWidth:(BOOL) differentWidth useHiddenButton:(BOOL)useHiddenButton
 {
     CGFloat containerWidth = 0;
     CGSize maxSize = CGSizeZero;
@@ -77,8 +82,21 @@
     if (!differentWidth) {
         containerWidth = maxSize.width * buttonsArray.count;
     }
+    
+    UIView *additionalButton = nil;
+    if (useHiddenButton && [buttonsArray count] > 0)
+    {
+        additionalButton = [buttonsArray objectAtIndex:0];
+        additionalButton.hidden = YES;
+    }
+    
 
-    if (self = [super initWithFrame:CGRectMake(0, 0, containerWidth, maxSize.height)]) {
+    if (self = [super initWithFrame:CGRectMake(additionalButton ? -additionalButton.frame.size.width : 0, 0, containerWidth, maxSize.height)]) {
+        
+        _usingHiddenButton = useHiddenButton;
+        if (additionalButton)
+            _hiddenButtonWidth = additionalButton.frame.size.width;
+        
         _fromLeft = direction == MGSwipeDirectionLeftToRight;
         _container = [[UIView alloc] initWithFrame:self.bounds];
         _container.clipsToBounds = YES;
@@ -96,11 +114,9 @@
             [_container insertSubview:button atIndex: _fromLeft ? 0: _container.subviews.count];
         }
         [self resetButtons];
-        if ([_buttons count] > 0)
-        {
-            UIView *additionalButton = [_buttons objectAtIndex:0];
-            additionalButton.hidden = YES;
-        }
+        
+        
+        _animateAdditional = false;
     }
     return self;
 }
@@ -218,32 +234,33 @@
     [self layoutExpansion:offset];
 }
 
--(CGFloat) hideAdditionalButton:(BOOL)hidden {
-    CGFloat buttonWidth = 45;
+-(BOOL) isAdditionalButtonShown
+{
+    if (!_usingHiddenButton)
+        return false;
+    
     UIView *additionalButton = [_buttons objectAtIndex:0];
-    CGFloat lol = additionalButton.frame.size.width;
-    NSLog(@"hidden: %d; width: %f; check: %f; res: %d", hidden, additionalButton.frame.size.width, hidden ? 0 : buttonWidth, additionalButton.frame.size.width != (hidden ? 0 : buttonWidth));
-    if (additionalButton.frame.size.width != (hidden ? 0 : buttonWidth))
+    return !additionalButton.hidden;
+}
+
+-(CGFloat) hideAdditionalButton:(BOOL)hidden {
+    if (!_usingHiddenButton)
+        return 0;
+    
+    CGFloat buttonWidth = _hiddenButtonWidth;
+    UIView *additionalButton = [_buttons objectAtIndex:0];
+    if (additionalButton.hidden != hidden)
     {
         additionalButton.hidden = hidden;
+        [UIView animateWithDuration:0.2 animations:^{
+            __block CGRect tmp = additionalButton.frame;
+            tmp.size.width = hidden ? 0 : buttonWidth;
+            additionalButton.frame = tmp;
+        }];
 
-        CGRect tmp = additionalButton.frame;
-        tmp.size.width = hidden ? 0 : buttonWidth;
-
-        additionalButton.frame = tmp;
-
-        tmp = self.frame;
-        tmp.size.width = hidden ? tmp.size.width - buttonWidth : tmp.size.width + buttonWidth;
-        tmp.origin.x = hidden ? tmp.origin.x + buttonWidth : tmp.origin.x - buttonWidth;
-        self.frame = tmp;
-
-        tmp = _container.frame;
-        tmp.size.width += hidden ? tmp.size.width - buttonWidth : tmp.size.width + buttonWidth;
-
-        _container.frame = tmp;
-
-        [self resetButtons];
-        return hidden ? -45 : buttonWidth;
+        _animateAdditional = !hidden;
+        
+        return hidden ? -buttonWidth : buttonWidth;
     }
     return 0;
 }
@@ -284,6 +301,11 @@
 -(UIView*) getExpandedButton
 {
     return _expandedButton;
+}
+
+-(CGFloat) hiddenButtonWidth
+{
+    return _hiddenButtonWidth;
 }
 
 #pragma mark Trigger Actions
@@ -347,26 +369,48 @@
 
 -(void) transitionClip:(CGFloat) t
 {
+
     CGFloat selfWidth = self.bounds.size.width;
-    CGFloat offsetX = 0;
+    __block CGFloat offsetX = 0;
 
-    for (UIView *button in _buttons) {
-        CGRect frame = button.frame;
-        CGFloat dx = roundf(frame.size.width * 0.5 * (1.0 - t)) ;
-        frame.origin.x = _fromLeft ? (selfWidth - frame.size.width - offsetX) * (1.0 - t) + offsetX + dx : offsetX * t - dx;
-        button.frame = frame;
-
-        if (_buttons.count > 1) {
-            CAShapeLayer *maskLayer = [CAShapeLayer new];
-            CGRect maskRect = CGRectMake(dx - 0.5, 0, frame.size.width - 2 * dx + 1.5, frame.size.height);
-            CGPathRef path = CGPathCreateWithRect(maskRect, NULL);
-            maskLayer.path = path;
-            CGPathRelease(path);
-            button.layer.mask = maskLayer;
+    void (^clip)() = ^void() {
+        for (UIView *button in _buttons) {
+            if (button.hidden)
+                continue;
+            
+            CGRect frame = button.frame;
+            CGFloat dx = roundf(frame.size.width * 0.5 * (1.0 - t)) ;
+            frame.origin.x = _fromLeft ? (selfWidth - frame.size.width - offsetX) * (1.0 - t) + offsetX + dx : offsetX * t - dx;
+            button.frame = frame;
+            
+            if (_buttons.count > 1) {
+                CAShapeLayer *maskLayer = [CAShapeLayer new];
+                CGRect maskRect = CGRectMake(dx - 0.5, 0, frame.size.width - 2 * dx + 1.5, frame.size.height);
+                CGPathRef path = CGPathCreateWithRect(maskRect, NULL);
+                maskLayer.path = path;
+                CGPathRelease(path);
+                button.layer.mask = maskLayer;
+            }
+            
+            offsetX += frame.size.width;
         }
+    };
+    
+    if (_animateAdditional) {
+        UIView *button = [_buttons objectAtIndex:0];
+        
+        CGRect frame = button.frame;
+        frame.origin.x = 0;
+        button.frame = frame;
+        [UIView animateWithDuration:0.2 animations:^{
+            clip();
+        } completion:^(BOOL finished) {
+        }];
 
-        offsetX += frame.size.width;
+        _animateAdditional = false;
     }
+    else
+        clip();
 }
 
 -(void) transtitionFloatBorder:(CGFloat) t
@@ -625,6 +669,7 @@ static inline CGFloat mgEaseInOutBounce(CGFloat t, CGFloat b, CGFloat c) {
         _leftSwipeSettings = [[MGSwipeSettings alloc] init];
         _rightSwipeSettings = [[MGSwipeSettings alloc] init];
         _leftExpansion = [[MGSwipeExpansionSettings alloc] init];
+        _leftExpansion.useHiddenButton = false;
         _rightExpansion = [[MGSwipeExpansionSettings alloc] init];
     }
     _animationData = [[MGSwipeAnimationData alloc] init];
@@ -713,14 +758,14 @@ static inline CGFloat mgEaseInOutBounce(CGFloat t, CGFloat b, CGFloat c) {
 
     [self fetchButtonsIfNeeded];
     if (!_leftView && _leftButtons.count > 0) {
-        _leftView = [[MGSwipeButtonsView alloc] initWithButtons:_leftButtons direction:MGSwipeDirectionLeftToRight differentWidth:_allowsButtonsWithDifferentWidth];
+        _leftView = [[MGSwipeButtonsView alloc] initWithButtons:_leftButtons direction:MGSwipeDirectionLeftToRight differentWidth:_allowsButtonsWithDifferentWidth useHiddenButton: _leftExpansion.useHiddenButton];
         _leftView.autoresizingMask = UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleHeight;
         _leftView.cell = self;
         _leftView.frame = CGRectMake(-_leftView.bounds.size.width, 0, _leftView.bounds.size.width, _swipeOverlay.bounds.size.height);
         [_swipeOverlay addSubview:_leftView];
     }
     if (!_rightView && _rightButtons.count > 0) {
-        _rightView = [[MGSwipeButtonsView alloc] initWithButtons:_rightButtons direction:MGSwipeDirectionRightToLeft differentWidth:_allowsButtonsWithDifferentWidth];
+        _rightView = [[MGSwipeButtonsView alloc] initWithButtons:_rightButtons direction:MGSwipeDirectionRightToLeft differentWidth:_allowsButtonsWithDifferentWidth useHiddenButton: false];
         _rightView.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleHeight;
         _rightView.cell = self;
         _rightView.frame = CGRectMake(_swipeOverlay.bounds.size.width, 0, _rightView.bounds.size.width, _swipeOverlay.bounds.size.height);
@@ -993,7 +1038,6 @@ static inline CGFloat mgEaseInOutBounce(CGFloat t, CGFloat b, CGFloat c) {
     }
 
     BOOL onlyButtons = sign < 0 ? _rightSwipeSettings.onlySwipeButtons : _leftSwipeSettings.onlySwipeButtons;
-    _swipeView.transform = CGAffineTransformMakeTranslation(onlyButtons ? 0 : newOffset, 0);
 
     //animate existing buttons
     MGSwipeButtonsView* but[2] = {_leftView, _rightView};
@@ -1007,20 +1051,26 @@ static inline CGFloat mgEaseInOutBounce(CGFloat t, CGFloat b, CGFloat c) {
         //buttons view position
         CGFloat translation = MIN(offset, view.bounds.size.width) * sign + settings[i].offset * sign;
         view.transform = CGAffineTransformMakeTranslation(translation, 0);
-
-        CGFloat additionalOffset = 0;
-        if (expansions[i].buttonIndex >= 0 && offset > view.bounds.size.width * 1.5)
+        
+        CGRect boundsDump = view.bounds;
+        
+        CGFloat thresholdAdditionalShow = 1.01;
+        CGFloat thresholdExpansion = 1.30;
+        if (![view isAdditionalButtonShown] && expansions[i].buttonIndex >= 0 && offset > boundsDump.size.width * thresholdAdditionalShow)
         {
-            additionalOffset = [view hideAdditionalButton:false];
-            if (additionalOffset)
-                _swipeView.transform = CGAffineTransformMakeTranslation(onlyButtons ? 0 : newOffset+additionalOffset, 0);
+            [view hideAdditionalButton:false];
+            [UIView animateWithDuration:0.2 animations:^{
+                _swipeView.transform = CGAffineTransformMakeTranslation(onlyButtons ? 0 : newOffset + ([view isAdditionalButtonShown] ? 0 : [view hiddenButtonWidth]), 0);
+            }];
         }
+        
+        _swipeView.transform = CGAffineTransformMakeTranslation(onlyButtons ? 0 : newOffset + ([view isAdditionalButtonShown] ? 0 : -[view hiddenButtonWidth]), 0);
 
         if (view != activeButtons) continue; //only transition if active (perf. improvement)
-        bool expand = expansions[i].buttonIndex >= 0 && offset > view.bounds.size.width * expansions[i].threshold;
+        bool expand = expansions[i].buttonIndex >= 0 && offset > boundsDump.size.width * thresholdExpansion;
         if (expand) {
             [view expandToOffset:offset settings:expansions[i]];
-            _targetOffset = expansions[i].fillOnTrigger ? self.bounds.size.width * sign : 0;
+            _targetOffset = expansions[i].fillOnTrigger ? boundsDump.size.width * sign : 0;
             _activeExpansion = view;
             [self updateState:i ? MGSwipeStateExpandingRightToLeft : MGSwipeStateExpandingLeftToRight];
         }
