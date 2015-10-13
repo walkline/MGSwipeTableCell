@@ -1056,21 +1056,23 @@ static inline CGFloat mgEaseInOutBounce(CGFloat t, CGFloat b, CGFloat c) {
         CGFloat thresholdAdditionalShow = 1.01;
         CGFloat thresholdExpansion = 1.30;
         
-        CGFloat offsetShift = 0;
-        if (![view isAdditionalButtonShown] && offset <= boundsDump.size.width * thresholdAdditionalShow)
+        if (expansions[i].useHiddenButton == true)
         {
-            newOffset = offset * 0.75;
+            if (![view isAdditionalButtonShown] && offset <= boundsDump.size.width * thresholdAdditionalShow)
+            {
+                newOffset = offset * 0.75;
+            }
+            
+            if (![view isAdditionalButtonShown] && expansions[i].buttonIndex >= 0 && offset > boundsDump.size.width * thresholdAdditionalShow)
+            {
+                [view hideAdditionalButton:false];
+                [UIView animateWithDuration:0.4 animations:^{
+                    _swipeView.transform = CGAffineTransformMakeTranslation(onlyButtons ? 0 : newOffset, 0);
+                }];
+            }
         }
         
-        if (![view isAdditionalButtonShown] && expansions[i].buttonIndex >= 0 && offset > boundsDump.size.width * thresholdAdditionalShow)
-        {
-            [view hideAdditionalButton:false];
-            [UIView animateWithDuration:0.4 animations:^{
-                _swipeView.transform = CGAffineTransformMakeTranslation(onlyButtons ? 0 : newOffset, 0);
-            }];
-        }
-        
-        _swipeView.transform = CGAffineTransformMakeTranslation(onlyButtons ? 0 : newOffset + offsetShift, 0);
+        _swipeView.transform = CGAffineTransformMakeTranslation(onlyButtons ? 0 : newOffset, 0);
 
         if (view != activeButtons) continue; //only transition if active (perf. improvement)
         bool expand = expansions[i].buttonIndex >= 0 && offset > boundsDump.size.width * thresholdExpansion;
@@ -1262,10 +1264,17 @@ static inline CGFloat mgEaseInOutBounce(CGFloat t, CGFloat b, CGFloat c) {
                 expansion.backgroundColorCopy = expSettings.expansionColor;
             }
             [self setSwipeOffset:_targetOffset animation:expSettings.triggerAnimation completion:^{
-                BOOL autoHide = [expansion handleClick:expandedButton fromExpansion:YES];
+                BOOL autoHide = true;
+                CGFloat offset = _panStartOffset + current.x - _panStartPoint.x;
+                if (self.frame.size.width * 0.75 < offset)
+                {
+                    autoHide = [expansion handleClick:expandedButton fromExpansion:YES];
+                }
+                
                 if (autoHide) {
                     [expansion endExpansioAnimated:NO];
                 }
+                
                 if (backgroundColor) {
                     expandedButton.backgroundColor = backgroundColor;
                 }
